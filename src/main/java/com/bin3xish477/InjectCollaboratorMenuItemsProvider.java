@@ -38,7 +38,6 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
             JMenuItem injectJSON = new JMenuItem("Inject in JSON");
             JMenuItem injectEverywhere = new JMenuItem("Inject Everywhere");
 
-            // TODO: Add item action listeners ...
             HttpRequestResponse requestResponse = event.messageEditorRequestResponse().isPresent() ?
                     event.messageEditorRequestResponse().get().requestResponse() : event.selectedRequestResponses().get(0);
 
