@@ -71,6 +71,7 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
             });
 
             injectJSON.addActionListener(l -> {
+                // TODO: check if request contains JSON body and is valid JSON.
                 this.injectTargetJSONValues(request);
             });
 
