@@ -2,15 +2,19 @@ package com.bin3xish477;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ToolType;
+import burp.api.montoya.http.message.ContentType;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,6 +24,7 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
     private final MontoyaApi api;
     private final String collaborator;
     private final ExecutorService executorService = Executors.newFixedThreadPool(5);
+    private HttpRequest request;
 
     public InjectCollaboratorMenuItemsProvider(final MontoyaApi api, String collaborator) {
         this.api = api;
@@ -41,46 +46,56 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
             HttpRequestResponse requestResponse = event.messageEditorRequestResponse().isPresent() ?
                     event.messageEditorRequestResponse().get().requestResponse() : event.selectedRequestResponses().get(0);
 
-            HttpRequest request = requestResponse.request();
+            this.request = requestResponse.request();
 
             injectHostHeader.addActionListener(l -> {
-                HttpRequest modifiedRequest = injectCollaboratorInHeaders(request, List.of("Host"));
-                this.sendRequest(modifiedRequest);
+                this.injectCollaboratorInHeaders(List.of("Host"));
+                this.sendRequest();
             });
 
             injectRefererHeader.addActionListener(l -> {
-                HttpRequest modifiedRequest = injectCollaboratorInHeaders(request, List.of("Referer"));
-                this.sendRequest(modifiedRequest);
+                this.injectCollaboratorInHeaders(List.of("Referer"));
+                this.sendRequest();
             });
 
             injectOriginHeader.addActionListener(l -> {
-                HttpRequest modifiedRequest = injectCollaboratorInHeaders(request, List.of("Origin"));
-                this.sendRequest(modifiedRequest);
+                this.injectCollaboratorInHeaders(List.of("Origin"));
+                this.sendRequest();
             });
 
             injectXLikeHeader.addActionListener(l -> {
-                HttpRequest modifiedRequest = injectCollaboratorInHeaders(request,
+                this.injectCollaboratorInHeaders(
                         Arrays.asList("X-Forwarded-Host", "X-Server",
                                 "X-Host", "X-Origin-Url", "X-Rewrite-Url", "X-Original-Host"));
-                this.sendRequest(modifiedRequest);
+                this.sendRequest();
             });
 
             injectQueryParams.addActionListener(l -> {
-                this.injectTargetQueryParams(request);
+                this.injectTargetQueryParams();
+                this.sendRequest();
             });
 
             injectJSON.addActionListener(l -> {
                 // TODO: check if request contains JSON body and is valid JSON.
-                this.injectTargetJSONValues(request);
+                this.injectTargetJSON();
+                this.sendRequest();
             });
 
             injectEverywhere.addActionListener(l -> {
-                HttpRequest modifiedRequest = injectCollaboratorInHeaders(
-                        request,
+                this.injectCollaboratorInHeaders(
                         Arrays.asList(
                                 "Host", "Referer", "Origin", "X-Forwarded-Host",
                                 "X-Server", "X-Host", "X-Origin-Url", "X-Rewrite-Url", "X-Original-Host"));
-                this.sendRequest(modifiedRequest);
+
+                if (this.request.contentType() == ContentType.JSON) {
+                    this.injectTargetJSON();
+                }
+
+                if (this.request.hasParameters()) {
+                    this.injectTargetQueryParams();
+                }
+
+                this.sendRequest();
             });
 
             return new ArrayList<>(
@@ -98,20 +113,19 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
         return null;
     }
 
-    private HttpRequest injectCollaboratorInHeaders(HttpRequest request, List<String> headers) {
+    private void injectCollaboratorInHeaders(List<String> headers) {
         for (String header : headers) {
-            request = request.withRemovedHeader(header);
+            this.request = this.request.withRemovedHeader(header);
             if (
                 header.equalsIgnoreCase("Origin")
                 || header.equalsIgnoreCase("X-Origin-Url")
                 || header.equalsIgnoreCase("X-Rewrite-Url")
             ) {
-                request = request.withAddedHeader(header, String.format("https://%s", this.collaborator));
+                this.request = this.request.withAddedHeader(header, String.format("https://%s", this.collaborator));
             } else {
-                request = request.withAddedHeader(header, this.collaborator);
+                this.request = this.request.withAddedHeader(header, this.collaborator);
             }
         }
-        return request;
     }
 
     /*
@@ -131,15 +145,44 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
             "returnTo"
     );
 
-    private HttpRequest injectTargetQueryParams(HttpRequest request) {
-        return request;
+    private void injectTargetQueryParams() {
+        if (this.request.hasParameters()) {
+        }
     }
 
-    private HttpRequest injectTargetJSONValues(HttpRequest request) {
-        return request;
+    private void injectTargetJSON() {
+        if (this.request.hasHeader("Content-Type") && this.request.contentType() == ContentType.JSON) {
+            ObjectMapper mapper = new ObjectMapper();
+            try {
+                JsonNode json = mapper.readTree(this.request.bodyToString());
+                JsonNode updatedJson = this.updateJsonNode(json);
+                this.request = this.request.withBody(updatedJson.toString());
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
-    private void sendRequest(HttpRequest modifiedRequest) {
-        this.executorService.execute(new DoRequest(this.api, modifiedRequest));
+    private void sendRequest() {
+        this.executorService.execute(new DoRequest(this.api, this.request));
+    }
+
+    public JsonNode updateJsonNode(JsonNode node) {
+        if (node.isObject()) {
+            ObjectNode objectNode = (ObjectNode) node;
+            Iterator<Map.Entry<String, JsonNode>> fields = objectNode.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (field.getValue().asText().matches("(?i)^https?://.+")) {
+                    objectNode.put(field.getKey(), String.format("https://%s", this.collaborator));
+                }
+                updateJsonNode(field.getValue());
+            }
+        } else if (node.isArray()) {
+            for (int i = 0; i < node.size(); i++) {
+                updateJsonNode(node.get(i));
+            }
+        }
+        return node;
     }
 }
