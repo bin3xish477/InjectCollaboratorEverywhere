@@ -149,7 +149,7 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
                     || paramName.matches("(?i).*url.*")
                 ) {
                     this.api.logging().logToOutput(
-                            String.format("[+] found relevant query parameter: %s", paramName));
+                            String.format("[+] found injectable query parameter: %s", paramName));
                     this.request = this.request.withUpdatedParameters(
                             HttpParameter.urlParameter(
                                     paramName,
@@ -184,6 +184,8 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> field = fields.next();
                 if (field.getValue().asText().matches("(?i)^https?://.+")) {
+                    this.api.logging().logToOutput(
+                            String.format("[+] found inject parameter in JSON body: %s", field.getKey()));
                     objectNode.put(field.getKey(), String.format("https://%s", this.collaborator));
                 }
                 updateJsonNode(field.getValue());
