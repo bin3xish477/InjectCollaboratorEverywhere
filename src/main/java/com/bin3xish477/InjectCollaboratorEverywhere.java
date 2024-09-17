@@ -11,7 +11,7 @@ public class InjectCollaboratorEverywhere implements BurpExtension {
         api.logging().logToOutput(
                 "This extension automatically injects a collaborator payload to the Host"
                 + ", Referer, and Origin headers, and/or other non-standard headers. It also allows"
-                + "injecting a collaborator payload into applicable query parameters and JSON values"
+                + " injecting a collaborator payload into applicable query and JSON parameters."
         );
 
         String collaborator = api.collaborator().defaultPayloadGenerator().generatePayload().toString();

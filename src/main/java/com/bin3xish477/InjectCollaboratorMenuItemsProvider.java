@@ -4,10 +4,13 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ToolType;
 import burp.api.montoya.http.message.ContentType;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.params.HttpParameter;
+import burp.api.montoya.http.message.params.ParsedHttpParameter;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -33,7 +36,7 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
 
     @Override
     public List<Component> provideMenuItems(ContextMenuEvent event) {
-        if (event.isFromTool(ToolType.PROXY, ToolType.LOGGER, ToolType.TARGET)) {
+        if (event.isFromTool(ToolType.PROXY, ToolType.LOGGER, ToolType.TARGET, ToolType.REPEATER)) {
 
             JMenuItem injectHostHeader = new JMenuItem("Inject in Host Header");
             JMenuItem injectRefererHeader = new JMenuItem("Inject in Referer Header");
@@ -76,7 +79,6 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
             });
 
             injectJSON.addActionListener(l -> {
-                // TODO: check if request contains JSON body and is valid JSON.
                 this.injectTargetJSON();
                 this.sendRequest();
             });
@@ -128,13 +130,6 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
         }
     }
 
-    /*
-    * TODO: add logic to the two functions that will replace the values for common
-    *   params used to identify a URL. Use a case-insensitive
-    *   regex to identify applicable parameters that contain the word url.
-    *   `sendRequest` will be called multiple times from this
-    *  */
-
     private final List<String> targetParams = Arrays.asList(
             "redirect_uri",
             "redirectUri",
@@ -147,6 +142,21 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
 
     private void injectTargetQueryParams() {
         if (this.request.hasParameters()) {
+            for (ParsedHttpParameter param  : this.request.parameters()) {
+                String paramName = param.name();
+                if (
+                    targetParams.contains(paramName)
+                    || paramName.matches("(?i).*url.*")
+                ) {
+                    this.api.logging().logToOutput(
+                            String.format("[+] found relevant query parameter: %s", paramName));
+                    this.request = this.request.withUpdatedParameters(
+                            HttpParameter.urlParameter(
+                                    paramName,
+                                    this.api.utilities().urlUtils().encode(
+                                            String.format("https://%s", this.collaborator))));
+                }
+            }
         }
     }
 
