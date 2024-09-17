@@ -173,10 +173,6 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
         }
     }
 
-    private void sendRequest() {
-        this.executorService.execute(new DoRequest(this.api, this.request));
-    }
-
     public JsonNode updateJsonNode(JsonNode node) {
         if (node.isObject()) {
             ObjectNode objectNode = (ObjectNode) node;
@@ -196,5 +192,9 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
             }
         }
         return node;
+    }
+
+    private void sendRequest() {
+        this.executorService.execute(new DoRequest(this.api, this.request));
     }
 }

@@ -15,7 +15,8 @@ public class InjectCollaboratorEverywhere implements BurpExtension {
         );
 
         String collaborator = api.collaborator().defaultPayloadGenerator().generatePayload().toString();
-        api.logging().logToOutput(String.format("[+] Generated Burp Collaborator endpoint: %s", collaborator));
+        api.logging().logToOutput(String.format("[+] generated Burp Collaborator payload: %s", collaborator));
+
         api.userInterface().registerContextMenuItemsProvider(
                 new InjectCollaboratorMenuItemsProvider(api, collaborator)
         );
