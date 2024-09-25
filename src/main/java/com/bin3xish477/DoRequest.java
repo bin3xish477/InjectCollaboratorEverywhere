@@ -1,9 +1,11 @@
 package com.bin3xish477;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import java.util.concurrent.Callable;
 
-class DoRequest implements Runnable {
+class DoRequest implements Callable<HttpRequestResponse> {
     private final MontoyaApi api;
     private final HttpRequest request;
 
@@ -13,7 +15,7 @@ class DoRequest implements Runnable {
     }
 
     @Override
-    public void run() {
-        this.api.http().sendRequest(this.request);
+    public HttpRequestResponse call() {
+        return this.api.http().sendRequest(this.request);
     }
 }

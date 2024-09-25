@@ -1,16 +1,21 @@
 package com.bin3xish477;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.Annotations;
+import burp.api.montoya.core.HighlightColor;
 import burp.api.montoya.core.ToolType;
 import burp.api.montoya.http.message.ContentType;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.params.HttpParameter;
 import burp.api.montoya.http.message.params.ParsedHttpParameter;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.responses.HttpResponse;
+import burp.api.montoya.scanner.audit.issues.AuditIssue;
+import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
+import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -19,13 +24,17 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProvider {
     private final MontoyaApi api;
-    private final String collaborator;
+    private String collaborator = "";
     private final ExecutorService executorService = Executors.newFixedThreadPool(5);
     private HttpRequest request;
 
@@ -53,34 +62,40 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
 
             injectHostHeader.addActionListener(l -> {
                 this.injectCollaboratorInHeaders(List.of("Host"));
-                this.sendRequest();
+                HttpResponse response = this.sendRequest().response();
+                this.checkResponseForCollaboratorPayload(response);
             });
 
             injectRefererHeader.addActionListener(l -> {
                 this.injectCollaboratorInHeaders(List.of("Referer"));
-                this.sendRequest();
+                HttpResponse response = this.sendRequest().response();
+                this.checkResponseForCollaboratorPayload(response);
             });
 
             injectOriginHeader.addActionListener(l -> {
                 this.injectCollaboratorInHeaders(List.of("Origin"));
-                this.sendRequest();
+                HttpResponse response = this.sendRequest().response();
+                this.checkResponseForCollaboratorPayload(response);
             });
 
             injectXLikeHeader.addActionListener(l -> {
                 this.injectCollaboratorInHeaders(
                         Arrays.asList("X-Forwarded-Host", "X-Server",
                                 "X-Host", "X-Origin-Url", "X-Rewrite-Url", "X-Original-Host"));
-                this.sendRequest();
+                HttpResponse response = this.sendRequest().response();
+                this.checkResponseForCollaboratorPayload(response);
             });
 
             injectQueryParams.addActionListener(l -> {
                 this.injectTargetQueryParams();
-                this.sendRequest();
+                HttpResponse response = this.sendRequest().response();
+                this.checkResponseForCollaboratorPayload(response);
             });
 
             injectJSON.addActionListener(l -> {
                 this.injectTargetJSON();
-                this.sendRequest();
+                HttpResponse response = this.sendRequest().response();
+                this.checkResponseForCollaboratorPayload(response);
             });
 
             injectEverywhere.addActionListener(l -> {
@@ -97,7 +112,8 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
                     this.injectTargetQueryParams();
                 }
 
-                this.sendRequest();
+                HttpResponse response = this.sendRequest().response();
+                this.checkResponseForCollaboratorPayload(response);
             });
 
             return new ArrayList<>(
@@ -194,7 +210,51 @@ public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProv
         return node;
     }
 
-    private void sendRequest() {
-        this.executorService.execute(new DoRequest(this.api, this.request));
+    private HttpRequestResponse sendRequest() {
+        Future<HttpRequestResponse> future = this.executorService.submit(new DoRequest(this.api, this.request));
+        try {
+            return future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void checkResponseForCollaboratorPayload(HttpResponse response) {
+        String regex = "(href|src)=[\"']*" + Pattern.quote(this.collaborator) + "*[\"']";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(response.bodyToString());
+        if (matcher.find()) {
+            this.api.logging().logToOutput("[+] found href/src with Collaborator payload -> " + matcher.group());
+            this.createIssue(response);
+        } else if (response.hasHeader("Location")) {
+            if (response.headerValue("Location").contains(this.collaborator)) {
+                this.createIssue(response);
+            }
+        } else if (response.hasHeader("Access-Control-Allow-Origin")) {
+            if (response.headerValue("Access-Control-Allow-Origin").contains(this.collaborator)) {
+                this.createIssue(response);
+            }
+        }
+    }
+
+    private void createIssue(HttpResponse response) {
+        HttpRequestResponse requestResponse = HttpRequestResponse.httpRequestResponse(this.request, response);
+        AuditIssue auditIssue = AuditIssue.auditIssue(
+                "Collaborator Payload Reflected in Response",
+                "A Collaborate payload was reflected in the HTTP response in one of the following places: 1) "
+                + "as a href/src attribute value, 2) in the HTTP Location header, or 3) in the "
+                + " HTTP Access-Control-Allow-Origin header.",
+                "When accepting user input that will be included as a source URL in an HTML element context,"
+                + " control the redirection of the browser window, or used to define cross-origin access via the "
+                + "Access-Control-Allow-Origin header, a URL allowlist should be used to validate the specified URL.",
+                requestResponse.request().url(),
+                AuditIssueSeverity.HIGH,
+                AuditIssueConfidence.FIRM,
+                "https://cwe.mitre.org/data/definitions/601.html, https://portswigger.net/web-security/ssrf",
+                "https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html",
+                AuditIssueSeverity.HIGH,
+                requestResponse
+        );
+        this.api.siteMap().add(auditIssue);
     }
 }
