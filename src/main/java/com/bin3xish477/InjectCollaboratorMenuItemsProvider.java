@@ -1,8 +1,6 @@
 package com.bin3xish477;
 
 import burp.api.montoya.MontoyaApi;
-import burp.api.montoya.core.Annotations;
-import burp.api.montoya.core.HighlightColor;
 import burp.api.montoya.core.ToolType;
 import burp.api.montoya.http.message.ContentType;
 import burp.api.montoya.http.message.HttpRequestResponse;
@@ -34,7 +32,7 @@ import java.util.regex.Pattern;
 
 public class InjectCollaboratorMenuItemsProvider implements ContextMenuItemsProvider {
     private final MontoyaApi api;
-    private String collaborator = "";
+    private final String collaborator;
     private final ExecutorService executorService = Executors.newFixedThreadPool(5);
     private HttpRequest request;
 
